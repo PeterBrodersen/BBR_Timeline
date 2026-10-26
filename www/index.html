@@ -26,13 +26,20 @@
 			<input id="year-slider" type="range" min="1000" max="1000" step="1" value="1000" disabled>
 		</div>
 		<div class="year-range"><span id="year-min">—</span><span id="year-max">—</span></div>
-		<div class="timeline-options">
+		<div id="timeline-toolbar" aria-label="Tidslinje">
 			<label class="timeline-mode" for="animation-mode">Vis efter
 				<select id="animation-mode">
 					<option value="year">År</option>
 					<option value="points">Punkter</option>
 				</select>
 			</label>
+			<div id="timeline-controls" aria-label="Afspil tidslinjen">
+				<button id="year-start" class="timeline-button" type="button" aria-label="Gå til første år" title="Gå til første år">|◀</button>
+				<button id="year-back" class="timeline-button" type="button" aria-label="Gå ét år tilbage" title="Gå ét år tilbage">−1 år</button>
+				<button id="year-play" class="timeline-button timeline-play" type="button" aria-label="Afspil tidslinjen" aria-pressed="false">▶ Afspil</button>
+				<button id="year-forward" class="timeline-button" type="button" aria-label="Gå ét år frem" title="Gå ét år frem">+1 år</button>
+				<button id="year-end" class="timeline-button" type="button" aria-label="Gå til sidste år" title="Gå til sidste år">▶|</button>
+			</div>
 			<label id="timeline-speed" for="year-speed">Hastighed
 				<select id="year-speed">
 					<option value="slow">Langsom</option>
@@ -41,15 +48,9 @@
 				</select>
 			</label>
 		</div>
-		<div id="timeline-controls" aria-label="Afspil tidslinjen">
-			<button id="year-start" class="timeline-button" type="button" aria-label="Gå til første år" title="Gå til første år">|◀</button>
-			<button id="year-back" class="timeline-button" type="button" aria-label="Gå ét år tilbage" title="Gå ét år tilbage">−1 år</button>
-			<button id="year-play" class="timeline-button timeline-play" type="button" aria-label="Afspil tidslinjen" aria-pressed="false">▶ Afspil</button>
-			<button id="year-forward" class="timeline-button" type="button" aria-label="Gå ét år frem" title="Gå ét år frem">+1 år</button>
-			<button id="year-end" class="timeline-button" type="button" aria-label="Gå til sidste år" title="Gå til sidste år">▶|</button>
-		</div>
 		<div id="export-controls">
 			<button id="export-video" class="timeline-button" type="button">Eksportér video (MP4)</button>
+			<button id="cancel-export" class="timeline-button" type="button" disabled hidden>Afbryd eksport</button>
 			<span id="export-status" role="status" aria-live="polite"></span>
 		</div>
 		<div id="year-footer">

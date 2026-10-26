@@ -183,13 +183,21 @@ body {
 	box-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
 }
 
-#timeline-controls {
+#timeline-toolbar {
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: center;
 	align-items: center;
 	gap: 6px;
-	margin-top: 6px;
+	margin-top: 4px;
+}
+
+#timeline-controls {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
 }
 
 .timeline-mode {
@@ -198,14 +206,7 @@ body {
 	gap: 4px;
 	color: #444;
 	font-size: 12px;
-}
-
-.timeline-options {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin-top: 2px;
+	white-space: nowrap;
 }
 
 .timeline-mode select {
@@ -245,10 +246,11 @@ body {
 #timeline-speed {
 	display: flex;
 	align-items: center;
-	justify-content: flex-end;
+	justify-content: center;
 	gap: 6px;
 	color: #444;
 	font-size: 12px;
+	white-space: nowrap;
 }
 
 #year-speed {
@@ -370,5 +372,13 @@ body {
 		align-items: flex-start;
 		flex-direction: column;
 		gap: 2px;
+	}
+
+	#timeline-toolbar {
+		gap: 4px;
+	}
+
+	#timeline-controls {
+		gap: 3px;
 	}
 }

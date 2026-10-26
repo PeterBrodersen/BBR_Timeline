@@ -20,6 +20,7 @@
 	var animationStartTime = 0;
 	var animationStartValue = 0;
 	var exportControlStates = null;
+	var exportCancelRequested = false;
 	var status = document.getElementById('status');
 	var slider = document.getElementById('year-slider');
 	var sliderGradientElement = document.getElementById('year-slider-gradient');
@@ -34,6 +35,7 @@
 	var yearEndButton = document.getElementById('year-end');
 	var yearSpeed = document.getElementById('year-speed');
 	var exportButton = document.getElementById('export-video');
+	var cancelExportButton = document.getElementById('cancel-export');
 	var exportStatus = document.getElementById('export-status');
 	var aboutToggle = document.getElementById('about-toggle');
 	var serviceInfoText = document.getElementById('service-info-text');
@@ -372,6 +374,14 @@
 
 	function featureYear(feature) {
 		return parseYear((feature.properties || {}).dateOfConstruction_dateOfEvent_anyPoint);
+	}
+
+	function totalFloors(feature) {
+		var properties = feature.properties || {};
+		return ['numberOfFloorsAboveGround', 'numberOfFloorsBelowGround'].reduce(function (total, field) {
+			var count = Number(properties[field]);
+			return total + (Number.isFinite(count) ? count : 0);
+		}, 0);
 	}
 
 	function centuryColor(century) {
@@ -887,8 +897,14 @@
 					}
 					var oldestYear = featureYear(oldest);
 					var candidateYear = featureYear(candidate);
-					return candidateYear !== null && (oldestYear === null || candidateYear < oldestYear)
-						? candidate : oldest;
+					if (candidateYear !== null && (oldestYear === null || candidateYear < oldestYear)) {
+						return candidate;
+					}
+					if (candidateYear !== null && candidateYear === oldestYear
+						&& totalFloors(candidate) > totalFloors(oldest)) {
+						return candidate;
+					}
+					return oldest;
 				}, null);
 				if (match) {
 					addressStatus.textContent = 'Adresse fundet i BBR: ' + requestedAddress.title;
@@ -911,16 +927,35 @@
 		}
 	}
 
+	function checkExportCancellation() {
+		if (exportCancelRequested) {
+			var error = new Error('Videoeksporten blev afbrudt.');
+			error.name = 'AbortError';
+			throw error;
+		}
+	}
+
 	function waitForBaseTiles() {
 		return new Promise(function (resolve) {
-			if (!activeBaseLayer || !activeBaseLayer.isLoading()) {
+			if (exportCancelRequested || !activeBaseLayer || !activeBaseLayer.isLoading()) {
 				resolve();
 				return;
 			}
 			var layer = activeBaseLayer;
+			var finished = false;
 			var timeout = setTimeout(finish, 15000);
+			var cancellationPoll = setInterval(function () {
+				if (exportCancelRequested) {
+					finish();
+				}
+			}, 100);
 			function finish() {
+				if (finished) {
+					return;
+				}
+				finished = true;
 				clearTimeout(timeout);
+				clearInterval(cancellationPoll);
 				layer.off('load', finish);
 				resolve();
 			}
@@ -930,11 +965,13 @@
 
 	async function getTileDrawData() {
 		await waitForBaseTiles();
+		checkExportCancellation();
 		await new Promise(function (resolve) {
 			requestAnimationFrame(function () {
 				requestAnimationFrame(resolve);
 			});
 		});
+		checkExportCancellation();
 		var mapRect = map.getContainer().getBoundingClientRect();
 		var tileContainer = activeBaseLayer && activeBaseLayer.getContainer();
 		if (!tileContainer) {
@@ -1085,23 +1122,29 @@
 	function setExportBusy(busy) {
 		var controls = Array.from(document.querySelectorAll('#year-control button, #year-control select, #year-control input, #address-search input'));
 		if (busy) {
+			exportCancelRequested = false;
 			exportControlStates = controls.map(function (control) {
 				return { control: control, disabled: control.disabled };
 			});
 			exportControlStates.forEach(function (state) {
-				if (state.control !== exportButton) {
+				if (state.control !== exportButton && state.control !== cancelExportButton) {
 					state.control.disabled = true;
 				}
 			});
 		} else if (exportControlStates) {
 			exportControlStates.forEach(function (state) {
-				if (state.control !== exportButton) {
+				if (state.control !== exportButton && state.control !== cancelExportButton) {
 					state.control.disabled = state.disabled;
 				}
 			});
 			exportControlStates = null;
 		}
 		exportButton.disabled = busy;
+		cancelExportButton.hidden = !busy;
+		cancelExportButton.disabled = !busy;
+		if (!busy) {
+			exportCancelRequested = false;
+		}
 		document.getElementById('map').classList.toggle('exporting', busy);
 		['dragging', 'scrollWheelZoom', 'doubleClickZoom', 'touchZoom', 'boxZoom', 'keyboard'].forEach(function (handler) {
 			if (map[handler]) {
@@ -1112,6 +1155,15 @@
 				}
 			}
 		});
+	}
+
+	function cancelVideoExport() {
+		if (cancelExportButton.disabled) {
+			return;
+		}
+		exportCancelRequested = true;
+		cancelExportButton.disabled = true;
+		exportStatus.textContent = 'Afbryder videoeksport …';
 	}
 
 	async function exportVideo() {
@@ -1126,6 +1178,7 @@
 		var videoSource;
 		try {
 			var mediabunny = await import(MEDIABUNNY_MODULE_URL);
+			checkExportCancellation();
 			var mapSize = map.getSize();
 			var canvas = document.createElement('canvas');
 			canvas.width = Math.max(2, Math.floor(mapSize.x / 2) * 2);
@@ -1135,6 +1188,7 @@
 				throw new Error('Browseren kunne ikke oprette et canvas til videoeksport.');
 			}
 			var tileData = await getTileDrawData();
+			checkExportCancellation();
 			var pointMode = animationMode === 'points';
 			var allRecords = makeVideoRecords(pointMode ? pointFeaturesCache : allFeatures);
 			var validYears = allRecords.map(function (record) { return record.year; }).filter(function (year) { return year !== null; });
@@ -1167,6 +1221,7 @@
 			} catch (error) {
 				codecError = error;
 			}
+			checkExportCancellation();
 			var extension = '.mp4';
 			if (!codec) {
 				format = new mediabunny.WebMOutputFormat();
@@ -1178,6 +1233,7 @@
 				} catch (error) {
 					codecError = error;
 				}
+				checkExportCancellation();
 				extension = '.webm';
 			}
 			if (!codec) {
@@ -1194,7 +1250,9 @@
 			});
 			output.addVideoTrack(videoSource, { frameRate: VIDEO_FRAME_RATE });
 			await output.start();
+			checkExportCancellation();
 			for (var frame = 0; frame < frameCount; frame++) {
+				checkExportCancellation();
 				var value = frameValues[frame];
 				var frameRecords;
 				var yearLabel;
@@ -1214,6 +1272,7 @@
 					}
 				}
 				await videoSource.add(frame / VIDEO_FRAME_RATE, 1 / VIDEO_FRAME_RATE);
+				checkExportCancellation();
 				if (frame % 5 === 0 || frame === frameCount - 1) {
 					exportStatus.textContent = 'Eksporterer frame ' + (frame + 1) + ' af ' + frameCount + ' …';
 					await new Promise(function (resolve) { setTimeout(resolve, 0); });
@@ -1222,13 +1281,18 @@
 			exportStatus.textContent = 'Holder slutbilledet i 2 sekunder …';
 			var holdFrameCount = VIDEO_FRAME_RATE * 2;
 			for (var holdFrame = 0; holdFrame < holdFrameCount; holdFrame++) {
+				checkExportCancellation();
 				await videoSource.add((frameCount + holdFrame) / VIDEO_FRAME_RATE, 1 / VIDEO_FRAME_RATE);
+				checkExportCancellation();
 				if (holdFrame % 10 === 9) {
 					await new Promise(function (resolve) { setTimeout(resolve, 0); });
 				}
 			}
+			checkExportCancellation();
 			videoSource.close();
+			exportStatus.textContent = 'Færdiggør video …';
 			await output.finalize();
+			checkExportCancellation();
 			var blob = new Blob([output.target.buffer], { type: format.mimeType });
 			var url = URL.createObjectURL(blob);
 			var link = document.createElement('a');
@@ -1240,21 +1304,26 @@
 				+ ' (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB).';
 		} catch (error) {
 			var message = error && error.message ? error.message : String(error);
+			var cancelled = exportCancelRequested || (error && error.name === 'AbortError');
+			var cleanupErrors = [];
 			if (videoSource) {
 				try {
 					videoSource.close();
 				} catch (closeError) {
-					message += ' Lukning af videokoderen mislykkedes: ' + closeError.message;
+					cleanupErrors.push('Lukning af videokoderen mislykkedes: ' + closeError.message);
 				}
 			}
 			if (output && output.state !== 'finalized' && output.state !== 'canceled') {
 				try {
 					await output.cancel();
 				} catch (cancelError) {
-					message += ' Oprydning mislykkedes: ' + cancelError.message;
+					cleanupErrors.push('Oprydning mislykkedes: ' + cancelError.message);
 				}
 			}
-			exportStatus.textContent = 'Videoeksport mislykkedes: ' + message;
+			exportStatus.textContent = cancelled
+				? 'Videoeksport afbrudt.' + (cleanupErrors.length ? ' ' + cleanupErrors.join(' ') : '')
+				: 'Videoeksport mislykkedes: ' + message
+					+ (cleanupErrors.length ? ' ' + cleanupErrors.join(' ') : '');
 		} finally {
 			setExportBusy(false);
 		}
@@ -1301,7 +1370,7 @@
 		buildingLayer = L.layerGroup().addTo(map);
 
 		var ObliqueControl = L.Control.extend({
-			options: { position: 'topright' },
+			options: { position: 'topleft' },
 			onAdd: function () {
 				var container = L.DomUtil.create('div', 'leaflet-bar oblique-control');
 				obliqueLink = L.DomUtil.create('a', '', container);
@@ -1364,6 +1433,7 @@
 			setTimelineValue(Number(slider.max));
 		});
 		yearSpeed.addEventListener('change', updateAnimationSpeed);
+		cancelExportButton.addEventListener('click', cancelVideoExport);
 		aboutToggle.addEventListener('click', function (event) {
 			event.preventDefault();
 			var expanded = aboutToggle.getAttribute('aria-expanded') !== 'true';

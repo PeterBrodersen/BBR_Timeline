@@ -17,6 +17,10 @@ Hent GeoPackage-datafilen fra
 i `www/local/`. Konvertér den til FlatGeobuf, som egner sig til rumlige opslag
 fra browseren:
 
+GeoPackage-filen fylder cirka 5 GB, og den konverterede FlatGeobuf-fil fylder
+tilsvarende cirka 5 GB. Sørg derfor for at have plads til begge filer under
+konverteringen.
+
 ```sh
 cd www/local
 ogr2ogr -skipfailures bbr.fgb DK_INSPIRE_BBR.gpkg
