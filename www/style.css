@@ -104,6 +104,10 @@ body {
 	box-shadow: 0 1px 8px rgba(0, 0, 0, 0.25);
 }
 
+#year-control [hidden] {
+	display: none !important;
+}
+
 .year-heading,
 .year-range {
 	display: flex;
@@ -188,7 +192,7 @@ body {
 	flex-wrap: wrap;
 	justify-content: center;
 	align-items: center;
-	gap: 6px;
+	gap: 12px;
 	margin-top: 4px;
 }
 
@@ -375,7 +379,7 @@ body {
 	}
 
 	#timeline-toolbar {
-		gap: 4px;
+		gap: 8px;
 	}
 
 	#timeline-controls {

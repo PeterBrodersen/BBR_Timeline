@@ -24,6 +24,11 @@
 	var status = document.getElementById('status');
 	var slider = document.getElementById('year-slider');
 	var sliderGradientElement = document.getElementById('year-slider-gradient');
+	var yearHeading = document.getElementById('year-heading');
+	var yearSliderWrap = document.getElementById('year-slider-wrap');
+	var yearRange = document.querySelector('.year-range');
+	var timelineToolbar = document.getElementById('timeline-toolbar');
+	var exportControls = document.getElementById('export-controls');
 	var yearValue = document.getElementById('year-value');
 	var timelineLabel = document.getElementById('timeline-label');
 	var animationModeSelect = document.getElementById('animation-mode');
@@ -655,7 +660,7 @@
 		}
 		return {
 			center: [Number(match[2]), Number(match[3])],
-			zoom: Math.max(MIN_ZOOM_LEVEL, Math.min(OSM_MAX_ZOOM_LEVEL, Number(match[1])))
+			zoom: Math.max(0, Math.min(OSM_MAX_ZOOM_LEVEL, Number(match[1])))
 		};
 	}
 
@@ -831,6 +836,12 @@
 				+ ' bygninger vist i kortudsnittet.';
 	}
 
+	function setDataControlsVisible(visible) {
+		[yearHeading, yearSliderWrap, yearRange, timelineToolbar, exportControls].forEach(function (element) {
+			element.hidden = !visible;
+		});
+	}
+
 	function activateAddressMatch(feature) {
 		animationMode = 'year';
 		animationModeSelect.value = animationMode;
@@ -867,9 +878,22 @@
 	async function loadFeatures() {
 		var serial = ++requestSerial;
 		if (map.getZoom() < MIN_ZOOM_LEVEL) {
-			status.textContent = 'Zoom ind til mindst niveau ' + MIN_ZOOM_LEVEL + ' for at hente bygninger.';
+			var previousPointStep = selectedPointStep;
+			stopAnimation();
+			if (selectedId !== null) {
+				selectedId = null;
+				updateHash();
+			}
+			allFeatures = [];
+			pointFeaturesCache = [];
+			buildingLayer.clearLayers();
+			updateYearControl();
+			selectedPointStep = previousPointStep;
+			setDataControlsVisible(false);
+			status.textContent = 'Zoom længere ind for at se punkter og bruge tidslinjen.';
 			return;
 		}
+		setDataControlsVisible(true);
 		status.textContent = 'Henter bygninger i kortudsnittet …';
 		try {
 			var features = [];
@@ -1349,7 +1373,7 @@
 		map = L.map('map', {
 			center: view.center,
 			zoom: view.zoom,
-			minZoom: MIN_ZOOM_LEVEL,
+			minZoom: 0,
 			maxZoom: OSM_MAX_ZOOM_LEVEL,
 			layers: [osmLayer],
 			preferCanvas: true
