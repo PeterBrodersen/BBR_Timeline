@@ -19,7 +19,8 @@ fra browseren:
 
 GeoPackage-filen fylder cirka 5 GB, og den konverterede FlatGeobuf-fil fylder
 tilsvarende cirka 5 GB. Sørg derfor for at have plads til begge filer under
-konverteringen.
+konverteringen. GeoPackage-filen skal ikke bruges efter konverteringen og kan
+slettes lokalt, når du har kontrolleret, at `bbr.fgb` er oprettet korrekt.
 
 ```sh
 cd www/local
