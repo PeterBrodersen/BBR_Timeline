@@ -1,5 +1,5 @@
 var ADRESSEVAELGER_URL = 'https://adressevaelger.dk';
-var ADRESSEVAELGER_TOKEN = '';
+var ADRESSEVAELGER_TOKEN = 'adressevaelger123';
 
 var DATAFORDELER_GRAPHQL_URL = 'https://graphql.datafordeler.dk/flexibleCurrent/v1';
 var DATAFORDELER_APIKEY = '';
