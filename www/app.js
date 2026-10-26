@@ -827,7 +827,8 @@
 		}
 		status.textContent = animationMode === 'points'
 			? visibleCount.toLocaleString('da-DK') + ' af ' + pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter vist.'
-			: visibleCount.toLocaleString('da-DK') + ' bygninger vist i kortudsnittet.';
+			: visibleCount.toLocaleString('da-DK') + ' ud af ' + pointFeaturesCache.length.toLocaleString('da-DK')
+				+ ' bygninger vist i kortudsnittet.';
 	}
 
 	function activateAddressMatch(feature) {
