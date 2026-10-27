@@ -6,6 +6,54 @@
 	var OBLIQUE_GROUND_ELEVATION = 20;
 	var OBLIQUE_CROP_SIZE = 768;
 	var GEOTIFF_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js';
+	var BBR_VALUE_TRANSLATIONS = {
+		currentUse: {
+			agriculture: 'Landbrug',
+			ancillary: 'Sekundær anvendelse',
+			collectiveResidence: 'Kollektiv bolig',
+			commerceAndServices: 'Handel og service',
+			individualResidence: 'Individuel bolig',
+			industrial: 'Industri',
+			office: 'Kontor',
+			publicServices: 'Offentlige tjenester',
+			residenceForCommunities: 'Bolig for fællesskaber',
+			residential: 'Beboelse',
+			trade: 'Handel',
+			twoDwellings: 'To boliger',
+			Unknown: 'Ukendt'
+		},
+		materialOfRoof: {
+			clayTile: 'Tegl',
+			composition: 'Sammensat tagmateriale',
+			concreteTile: 'Betontagsten',
+			corrugatedSheet: 'Bølgeplader',
+			glass: 'Glas',
+			hotMoppedAsphalt: 'Asfalt eller tagpap',
+			none: 'Intet tagmateriale',
+			other: 'Andet',
+			thatch: 'Stråtag',
+			vegetatedGreenRoof: 'Grønt tag'
+		},
+		heatingSource: {
+			electricity: 'Elektricitet',
+			liquidFuels: 'Flydende brændsler',
+			naturalGas: 'Naturgas',
+			none: 'Ingen',
+			other: 'Andet',
+			solidFuels: 'Fast brændsel',
+			straw: 'Halm',
+			warmWaterOrStream: 'Varmt vand eller damp'
+		},
+		heatingSystem: {
+			centralHeating: 'Centralvarme',
+			districtHeating: 'Fjernvarme',
+			electricRaditors: 'Elradiatorer',
+			heatPump: 'Varmepumpe',
+			none: 'Ingen',
+			portableGasHeating: 'Transportabel gasvarme',
+			stove: 'Ovn'
+		}
+	};
 	var geoTiffLibraryPromise = null;
 	var activeObliquePreview = null;
 	var map;
@@ -387,6 +435,13 @@
 		return String(value).replace(/[&<>"']/g, function (character) {
 			return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character];
 		});
+	}
+
+	function translateFieldValue(field, value) {
+		var translations = BBR_VALUE_TRANSLATIONS[field];
+		var rawValue = String(value).trim();
+		return translations && Object.prototype.hasOwnProperty.call(translations, rawValue)
+			? translations[rawValue] : value;
 	}
 
 	function featureYear(feature) {
@@ -1248,7 +1303,7 @@
 			var value = properties[field[1]];
 			return value !== null && value !== undefined && String(value).trim() !== '';
 		}).map(function (field) {
-			var value = escapeHtml(properties[field[1]]);
+			var value = escapeHtml(translateFieldValue(field[1], properties[field[1]]));
 			if (field[1] === 'addressRepresentation') {
 				value = value.replace(/,\s*/g, ',<br>');
 			}
