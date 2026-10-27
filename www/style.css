@@ -128,7 +128,18 @@ body {
 #year-slider-wrap {
 	position: relative;
 	height: 20px;
-	margin: 8px 0 0;
+	margin: 2px 0 0;
+}
+
+#year-histogram {
+	display: block;
+	width: calc(100% - 18px);
+	height: 10px;
+	margin: 4px 9px 0;
+}
+
+#year-histogram[hidden] {
+	display: none;
 }
 
 #year-slider-gradient {
@@ -192,7 +203,7 @@ body {
 	flex-wrap: wrap;
 	justify-content: center;
 	align-items: center;
-	gap: 12px;
+	gap: 16px;
 	margin-top: 4px;
 }
 
@@ -379,7 +390,7 @@ body {
 	}
 
 	#timeline-toolbar {
-		gap: 8px;
+		gap: 10px;
 	}
 
 	#timeline-controls {

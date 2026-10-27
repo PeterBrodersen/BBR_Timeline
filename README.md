@@ -52,7 +52,9 @@ Tjenesternes URL-felter er allerede udfyldt i eksempelfilen og behøver normalt
 ikke ændres. `BBR_DATA_URL` skal pege på FlatGeobuf-filen relativt til `www/`;
 standardværdien `local/bbr.fgb` passer til dataopsætningen ovenfor. De øvrige
 værdier styrer kortets startposition og zoom, minimum zoom, animationshastighed,
-punktmængden pr. animationstrin, videoens billedfrekvens og Mediabunny-CDN'en.
+punktmængden pr. animationstrin, histogrammets y-akses skalering, videoens
+billedfrekvens og Mediabunny-CDN'en. `YEAR_HISTOGRAM_SCALE` er som standard
+`linear`; den kan også sættes til `logarithmic`.
 
 `www/config.js` er ignoreret af Git. Læg ikke tokens i `config.example.js` eller
 andre filer, der skal deles.

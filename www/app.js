@@ -24,6 +24,7 @@
 	var status = document.getElementById('status');
 	var slider = document.getElementById('year-slider');
 	var sliderGradientElement = document.getElementById('year-slider-gradient');
+	var yearHistogram = document.getElementById('year-histogram');
 	var yearHeading = document.getElementById('year-heading');
 	var yearSliderWrap = document.getElementById('year-slider-wrap');
 	var yearRange = document.querySelector('.year-range');
@@ -511,6 +512,62 @@
 		return 'linear-gradient(to right, ' + stops.join(', ') + ')';
 	}
 
+	function drawYearHistogram() {
+		var validYears = allFeatures.map(featureYear).filter(function (year) {
+			return year !== null;
+		});
+		var width = yearHistogram.clientWidth;
+		if (!validYears.length || !width) {
+			return;
+		}
+		var height = 10;
+		var minYear = Math.min.apply(null, validYears);
+		var maxYear = Math.max.apply(null, validYears);
+		var pixelRatio = window.devicePixelRatio || 1;
+		yearHistogram.width = Math.round(width * pixelRatio);
+		yearHistogram.height = Math.round(height * pixelRatio);
+		var context = yearHistogram.getContext('2d');
+		if (!context) {
+			throw new Error('Browseren kunne ikke tegne histogrammet.');
+		}
+		context.setTransform(yearHistogram.width / width, 0, 0, yearHistogram.height / height, 0, 0);
+		var countsByYear = new Map();
+		allFeatures.forEach(function (feature) {
+			var year = featureYear(feature);
+			if (year === null) {
+				return;
+			}
+			countsByYear.set(year, (countsByYear.get(year) || 0) + 1);
+		});
+		var maxCount = 0;
+		countsByYear.forEach(function (count) {
+			maxCount = Math.max(maxCount, count);
+		});
+		if (!maxCount) {
+			return;
+		}
+		context.fillStyle = '#555';
+		countsByYear.forEach(function (count, year) {
+			if (!count) {
+				return;
+			}
+			var ratio;
+			if (YEAR_HISTOGRAM_SCALE === 'linear') {
+				ratio = count / maxCount;
+			} else if (YEAR_HISTOGRAM_SCALE === 'logarithmic') {
+				ratio = Math.log1p(count) / Math.log1p(maxCount);
+			} else {
+				throw new Error('Ukendt YEAR_HISTOGRAM_SCALE: ' + YEAR_HISTOGRAM_SCALE);
+			}
+			var barHeight = Math.max(1, Math.ceil(ratio * height));
+			var start = maxYear === minYear ? 0 : (year - minYear) / (maxYear - minYear) * width;
+			var end = maxYear === minYear ? width : (year + 1 - minYear) / (maxYear - minYear) * width;
+			var x = Math.floor(start);
+			var barWidth = Math.max(1, Math.ceil(Math.min(width, end)) - x);
+			context.fillRect(x, height - barHeight, barWidth, barHeight);
+		});
+	}
+
 	function updateSliderColor() {
 		if (animationMode === 'points') {
 			var displayedCount = pointCountForStep(selectedPointStep, pointFeaturesCache.length, pointStepCount(pointFeaturesCache));
@@ -724,6 +781,7 @@
 		var max = validYears.length ? Math.max.apply(null, validYears) : null;
 		pointFeaturesCache = getPointFeatures();
 		if (animationMode === 'points') {
+			yearHistogram.hidden = true;
 			var steps = pointStepCount(pointFeaturesCache);
 			slider.disabled = steps === 0;
 			slider.min = '0';
@@ -742,6 +800,7 @@
 			document.getElementById('year-max').textContent = pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter';
 			updateSliderColor();
 		} else if (min === null) {
+			yearHistogram.hidden = true;
 			stopAnimation();
 			slider.disabled = true;
 			slider.min = '1000';
@@ -754,6 +813,8 @@
 			document.getElementById('year-min').textContent = '—';
 			document.getElementById('year-max').textContent = '—';
 		} else {
+			yearHistogram.hidden = false;
+			drawYearHistogram();
 			slider.disabled = false;
 			slider.min = String(min);
 			slider.max = String(max);
@@ -837,7 +898,7 @@
 	}
 
 	function setDataControlsVisible(visible) {
-		[yearHeading, yearSliderWrap, yearRange, timelineToolbar, exportControls].forEach(function (element) {
+		[yearHeading, yearHistogram, yearSliderWrap, yearRange, timelineToolbar, exportControls].forEach(function (element) {
 			element.hidden = !visible;
 		});
 	}
@@ -1410,6 +1471,11 @@
 		});
 		map.addControl(new ObliqueControl());
 
+		map.on('resize', function () {
+			if (animationMode === 'year' && !yearHistogram.hidden) {
+				drawYearHistogram();
+			}
+		});
 		map.on('moveend', function () {
 			stopAnimation();
 			obliqueLink.href = obliqueUrl(map.getCenter());

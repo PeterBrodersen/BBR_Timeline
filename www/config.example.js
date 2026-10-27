@@ -20,5 +20,6 @@ var YEAR_ANIMATION_INTERVALS = {
 	fast: 20
 };
 var POINTS_PER_STEP_PERCENT = 1;
+var YEAR_HISTOGRAM_SCALE = 'linear';
 var VIDEO_FRAME_RATE = 30;
 var MEDIABUNNY_MODULE_URL = 'https://cdn.jsdelivr.net/npm/mediabunny@1.62.1/dist/bundles/mediabunny.min.mjs';
