@@ -516,3 +516,9 @@ body {
 		gap: 3px;
 	}
 }
+
+@media (max-width: 520px) and (orientation: portrait) {
+	#address-search {
+		width: min(250px, calc(100vw - 170px));
+	}
+}

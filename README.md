@@ -17,6 +17,10 @@ Hent GeoPackage-datafilen fra
 i `www/local/`. Konvertér den til FlatGeobuf, som egner sig til rumlige opslag
 fra browseren:
 
+Knap 10 % af punkterne har det kunstige byggeår `1000`. Det behandles som et
+ugyldigt årstal og er filtreret fra som standard. På kortet kan punkterne vises
+med afkrydsningsfeltet "Vis ugyldige årstal".
+
 GeoPackage-filen fylder cirka 5 GB, og den konverterede FlatGeobuf-fil fylder
 tilsvarende cirka 5 GB. Sørg derfor for at have plads til begge filer under
 konverteringen. GeoPackage-filen skal ikke bruges efter konverteringen og kan

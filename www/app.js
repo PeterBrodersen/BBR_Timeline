@@ -347,7 +347,7 @@
 		});
 	}
 
-	function parseYear(value) {
+	function parseConstructionYear(value) {
 		if (value === null || value === undefined) {
 			return null;
 		}
@@ -361,6 +361,11 @@
 			return null;
 		}
 		return Number.isInteger(year) && year >= 1000 && year <= CURRENT_YEAR ? year : null;
+	}
+
+	function parseYear(value) {
+		var year = parseConstructionYear(value);
+		return year !== null && year >= 1001 ? year : null;
 	}
 
 	function featureId(feature) {
@@ -386,6 +391,14 @@
 
 	function featureYear(feature) {
 		return parseYear((feature.properties || {}).dateOfConstruction_dateOfEvent_anyPoint);
+	}
+
+	function constructionYearValue(feature) {
+		var value = (feature.properties || {}).dateOfConstruction_dateOfEvent_anyPoint;
+		if (value === null || value === undefined || String(value).trim() === '') {
+			return null;
+		}
+		return String(value).trim();
 	}
 
 	function totalFloors(feature) {
@@ -447,8 +460,11 @@
 
 	function updatePointYearLabel(shown) {
 		var latestVisibleYear = null;
+		var latestVisibleYearIsValid = false;
 		for (var visibleIndex = Math.min(shown, pointFeaturesCache.length) - 1; visibleIndex >= 0; visibleIndex--) {
-			latestVisibleYear = featureYear(pointFeaturesCache[visibleIndex]);
+			var feature = pointFeaturesCache[visibleIndex];
+			latestVisibleYear = constructionYearValue(feature);
+			latestVisibleYearIsValid = featureYear(feature) !== null;
 			if (latestVisibleYear !== null) {
 				break;
 			}
@@ -457,10 +473,12 @@
 			+ pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter'
 			+ (latestVisibleYear === null
 				? shown ? ' · byggeår ukendt' : ''
-				: ' · seneste byggeår ' + latestVisibleYear);
+				: ' · seneste byggeår ' + latestVisibleYear
+					+ (latestVisibleYearIsValid ? '' : ' (ugyldigt)'));
 		slider.title = latestVisibleYear === null
 			? shown ? 'De viste punkter har intet gyldigt byggeår' : 'Ingen punkter vist'
-			: 'Seneste viste byggeår: ' + latestVisibleYear;
+			: 'Seneste viste byggeår: ' + latestVisibleYear
+				+ (latestVisibleYearIsValid ? '' : ' (ugyldigt årstal)');
 	}
 
 	function pointStepForCount(count, total, steps) {
@@ -536,17 +554,14 @@
 		return 'linear-gradient(to right, ' + stops.join(', ') + ')';
 	}
 
-	function drawYearHistogram() {
-		var validYears = allFeatures.map(featureYear).filter(function (year) {
-			return year !== null;
-		});
+	function drawYearHistogram(minYear, maxYear) {
+		minYear = minYear === undefined ? Number(slider.min) : minYear;
+		maxYear = maxYear === undefined ? Number(slider.max) : maxYear;
 		var width = yearHistogram.clientWidth;
-		if (!validYears.length || !width) {
+		if (!allFeatures.length || !width) {
 			return;
 		}
 		var height = 10;
-		var minYear = Math.min.apply(null, validYears);
-		var maxYear = Math.max.apply(null, validYears);
 		var pixelRatio = window.devicePixelRatio || 1;
 		yearHistogram.width = Math.round(width * pixelRatio);
 		yearHistogram.height = Math.round(height * pixelRatio);
@@ -559,7 +574,11 @@
 		allFeatures.forEach(function (feature) {
 			var year = featureYear(feature);
 			if (year === null) {
-				return;
+				if (!showInvalid.checked
+					|| parseConstructionYear(constructionYearValue(feature)) !== 1000) {
+					return;
+				}
+				year = 1000;
 			}
 			countsByYear.set(year, (countsByYear.get(year) || 0) + 1);
 		});
@@ -1236,8 +1255,11 @@
 			return '<dt>' + escapeHtml(field[0]) + '</dt><dd>' + value + '</dd>';
 		}).join('');
 		var year = featureYear(feature);
+		var yearValue = constructionYearValue(feature);
 		if (year === null) {
-			rows += '<dt>Byggeår</dt><dd>Ugyldigt eller ukendt</dd>';
+			rows += '<dt>Byggeår</dt><dd>'
+				+ (yearValue === null ? 'Ukendt' : escapeHtml(yearValue) + ' (ugyldigt årstal)')
+				+ '</dd>';
 		} else {
 			rows += '<dt>Byggeår</dt><dd>' + year + '</dd>';
 		}
@@ -1256,8 +1278,14 @@
 		var validYears = allFeatures.map(featureYear).filter(function (year) {
 			return year !== null;
 		});
-		var min = validYears.length ? Math.min.apply(null, validYears) : null;
-		var max = validYears.length ? Math.max.apply(null, validYears) : null;
+		var minValidYear = validYears.length ? Math.min.apply(null, validYears) : null;
+		var maxValidYear = validYears.length ? Math.max.apply(null, validYears) : null;
+		var min = minValidYear === null
+			? showInvalid.checked ? 1000 : null
+			: showInvalid.checked ? 1000 : minValidYear;
+		var max = maxValidYear === null
+			? showInvalid.checked ? 1000 : null
+			: maxValidYear;
 		pointFeaturesCache = getPointFeatures();
 		if (animationMode === 'points') {
 			yearHistogram.hidden = true;
@@ -1293,9 +1321,11 @@
 			document.getElementById('year-min').textContent = '—';
 			document.getElementById('year-max').textContent = '—';
 		} else {
-			yearHistogram.hidden = false;
-			drawYearHistogram();
-			slider.disabled = false;
+			yearHistogram.hidden = minValidYear === null;
+			if (minValidYear !== null || showInvalid.checked) {
+				drawYearHistogram(min, max);
+			}
+			slider.disabled = min === max;
 			slider.min = String(min);
 			slider.max = String(max);
 			if (selectedYear === null) {
