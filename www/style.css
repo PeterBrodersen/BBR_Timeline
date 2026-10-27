@@ -96,7 +96,7 @@ body {
 	position: absolute;
 	z-index: 1000;
 	right: 16px;
-	bottom: 16px;
+	bottom: 36px;
 	left: 16px;
 	padding: 10px 14px 8px;
 	border-radius: 6px;
@@ -378,7 +378,7 @@ body {
 @media (max-width: 520px) {
 	#year-control {
 		right: 8px;
-		bottom: 8px;
+		bottom: 34px;
 		left: 8px;
 		padding: 8px 10px;
 	}

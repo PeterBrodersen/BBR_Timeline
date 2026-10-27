@@ -439,6 +439,24 @@
 		return steps ? Math.round(total * step / steps) : 0;
 	}
 
+	function updatePointYearLabel(shown) {
+		var latestVisibleYear = null;
+		for (var visibleIndex = Math.min(shown, pointFeaturesCache.length) - 1; visibleIndex >= 0; visibleIndex--) {
+			latestVisibleYear = featureYear(pointFeaturesCache[visibleIndex]);
+			if (latestVisibleYear !== null) {
+				break;
+			}
+		}
+		yearValue.textContent = shown.toLocaleString('da-DK') + ' af '
+			+ pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter'
+			+ (latestVisibleYear === null
+				? shown ? ' · byggeår ukendt' : ''
+				: ' · seneste byggeår ' + latestVisibleYear);
+		slider.title = latestVisibleYear === null
+			? shown ? 'De viste punkter har intet gyldigt byggeår' : 'Ingen punkter vist'
+			: 'Seneste viste byggeår: ' + latestVisibleYear;
+	}
+
 	function pointStepForCount(count, total, steps) {
 		var low = 0, high = steps;
 		while (low < high) {
@@ -630,10 +648,11 @@
 			selectedYear = value;
 			yearValue.textContent = String(value);
 			timelineLabel.textContent = 'Byggeår til og med år';
+			slider.title = 'Byggeår til og med ' + value;
 		} else {
 			selectedPointStep = value;
 			var count = pointCountForStep(value, pointFeaturesCache.length, range.max);
-			yearValue.textContent = count.toLocaleString('da-DK') + ' af ' + pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter';
+			updatePointYearLabel(count);
 			timelineLabel.textContent = 'Viste punkter';
 		}
 		updateSliderColor();
@@ -795,7 +814,7 @@
 			timelineLabel.textContent = 'Viste punkter';
 			setSliderGradient(pointSliderGradient(pointFeaturesCache, steps));
 			var shown = pointCountForStep(selectedPointStep, pointFeaturesCache.length, steps);
-			yearValue.textContent = shown.toLocaleString('da-DK') + ' af ' + pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter';
+			updatePointYearLabel(shown);
 			document.getElementById('year-min').textContent = '0 punkter';
 			document.getElementById('year-max').textContent = pointFeaturesCache.length.toLocaleString('da-DK') + ' punkter';
 			updateSliderColor();
@@ -807,6 +826,7 @@
 			slider.max = '1000';
 			slider.value = '1000';
 			timelineLabel.textContent = 'Byggeår til og med år';
+			slider.title = 'Ingen gyldige byggeår';
 			setSliderGradient('linear-gradient(to right, #aaa, #aaa)');
 			slider.style.setProperty('--year-color', '#aaa');
 			yearValue.textContent = '—';
@@ -825,6 +845,7 @@
 			}
 			slider.value = String(selectedYear);
 			timelineLabel.textContent = 'Byggeår til og med år';
+			slider.title = 'Byggeår til og med ' + selectedYear;
 			setSliderGradient(sliderGradient(min, max));
 			updateSliderColor();
 			yearValue.textContent = String(selectedYear);
