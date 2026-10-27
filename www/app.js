@@ -2,6 +2,12 @@
 	'use strict';
 
 	var CURRENT_YEAR = new Date().getFullYear();
+	var OBLIQUE_API_URL = DATAFORSYNINGEN_URL + '/rest/skraafoto_api/v2/search';
+	var OBLIQUE_GROUND_ELEVATION = 20;
+	var OBLIQUE_CROP_SIZE = 768;
+	var GEOTIFF_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js';
+	var geoTiffLibraryPromise = null;
+	var activeObliquePreview = null;
 	var map;
 	var buildingLayer;
 	var canvasRenderer;
@@ -751,10 +757,459 @@
 		return location.origin + location.pathname + location.search + '#' + fragment;
 	}
 
-	function obliqueUrl(latlng) {
+	function legacyCopyText(text) {
+		var textarea = document.createElement('textarea');
+		textarea.value = text;
+		textarea.setAttribute('readonly', '');
+		textarea.style.position = 'fixed';
+		textarea.style.opacity = '0';
+		document.body.appendChild(textarea);
+		textarea.select();
+		var copied = false;
+		try {
+			copied = document.execCommand('copy');
+		} finally {
+			textarea.remove();
+		}
+		if (!copied) {
+			throw new Error('Clipboard access was denied');
+		}
+	}
+
+	function copyTextToClipboard(text) {
+		if (!navigator.clipboard || !navigator.clipboard.writeText) {
+			try {
+				legacyCopyText(text);
+				return Promise.resolve();
+			} catch (error) {
+				return Promise.reject(error);
+			}
+		}
+		var writePromise;
+		try {
+			writePromise = navigator.clipboard.writeText(text);
+		} catch (error) {
+			try {
+				legacyCopyText(text);
+				return Promise.resolve();
+			} catch (fallbackError) {
+				return Promise.reject(fallbackError);
+			}
+		}
+		return Promise.resolve(writePromise).catch(function () {
+			legacyCopyText(text);
+		});
+	}
+
+	function setupShareLink(popupElement) {
+		var link = popupElement && popupElement.querySelector('.building-share-link');
+		var status = popupElement && popupElement.querySelector('.building-share-status');
+		if (!link || !status || link.dataset.copyBound === 'true') {
+			return;
+		}
+		link.dataset.copyBound = 'true';
+		var feedbackTimer = null;
+		link.addEventListener('click', function (event) {
+			event.preventDefault();
+			if (feedbackTimer) {
+				clearTimeout(feedbackTimer);
+			}
+			status.textContent = '';
+			link.classList.remove('copied');
+			copyTextToClipboard(link.href).then(function () {
+				status.textContent = 'Kopieret';
+				link.classList.add('copied');
+				feedbackTimer = setTimeout(function () {
+					status.textContent = '';
+					link.classList.remove('copied');
+					feedbackTimer = null;
+				}, 1500);
+			}).catch(function () {
+				status.textContent = 'Kunne ikke kopiere. Prøv igen eller kopiér linkadressen manuelt.';
+			});
+		});
+	}
+
+	function obliqueUrl(latlng, orientation) {
 		var xy = latLngToUtm32(latlng.lat, latlng.lng);
-		return 'https://skraafoto.dataforsyningen.dk/?center='
+		var url = 'https://skraafoto.dataforsyningen.dk/?center='
 			+ Math.round(xy[0]) + '%2C' + Math.round(xy[1]);
+		if (['north', 'east', 'south', 'west'].indexOf(orientation) !== -1) {
+			url += '&orientation=' + encodeURIComponent(orientation);
+		}
+		return url;
+	}
+
+	function projectToObliquePixel(item, x, y) {
+		var properties = item.properties || {};
+		var orientation = properties['pers:interior_orientation'];
+		var rotation = properties['pers:rotation_matrix'];
+		var center = properties['pers:perspective_center'];
+		var shape = properties['proj:shape'];
+		if (!orientation || !rotation || !center || !shape || rotation.length !== 9
+			|| (Number(properties['pers:crs']) !== 25832)) {
+			return null;
+		}
+		var dimensions = orientation.sensor_array_dimensions;
+		var spacing = orientation.pixel_spacing;
+		var principalPoint = orientation.principal_point_offset || [0, 0];
+		if (!dimensions || !spacing || dimensions.length < 2 || spacing.length < 2) {
+			return null;
+		}
+		var width = Number(shape[1]);
+		var height = Number(shape[0]);
+		var pixelSizeX = Number(spacing[0]);
+		var pixelSizeY = Number(spacing[1]);
+		var focalLength = Number(orientation.focal_length);
+		var values = [width, height, pixelSizeX, pixelSizeY, focalLength].concat(rotation, center);
+		if (!values.every(Number.isFinite) || width <= 0 || height <= 0
+			|| pixelSizeX <= 0 || pixelSizeY <= 0 || focalLength <= 0) {
+			return null;
+		}
+
+		var dx = x - center[0];
+		var dy = y - center[1];
+		var dz = OBLIQUE_GROUND_ELEVATION - center[2];
+		var denominator = rotation[6] * dx + rotation[7] * dy + rotation[8] * dz;
+		if (!Number.isFinite(denominator) || Math.abs(denominator) < 1e-8) {
+			return null;
+		}
+		var focalPixels = focalLength / pixelSizeX;
+		var principalX = Number(dimensions[0]) / 2 + Number(principalPoint[0] || 0) / pixelSizeX;
+		var principalY = Number(dimensions[1]) / 2 + Number(principalPoint[1] || 0) / pixelSizeY;
+		var lowerLeftX = principalX - focalPixels
+			* (rotation[0] * dx + rotation[1] * dy + rotation[2] * dz) / denominator;
+		var lowerLeftY = principalY - focalPixels
+			* (rotation[3] * dx + rotation[4] * dy + rotation[5] * dz) / denominator;
+		var pixelX = lowerLeftX;
+		var pixelY = height - lowerLeftY;
+		if (!Number.isFinite(pixelX) || !Number.isFinite(pixelY)
+			|| pixelX < 0 || pixelY < 0 || pixelX >= width || pixelY >= height) {
+			return null;
+		}
+		return {
+			x: pixelX,
+			y: pixelY,
+			width: width,
+			height: height
+		};
+	}
+
+	function obliqueDirectionLabel(direction) {
+		var labels = {
+			north: 'mod nord',
+			east: 'mod øst',
+			south: 'mod syd',
+			west: 'mod vest',
+			unknown: 'ukendt'
+		};
+		return labels[direction] || direction;
+	}
+
+	function findObliqueItems(latlng, coordinates) {
+		var point = {
+			type: 'Point',
+			coordinates: [latlng.lng, latlng.lat]
+		};
+		var params = new URLSearchParams({
+			filter: JSON.stringify({
+				contains: [{ property: 'geometry' }, point]
+			}),
+			'filter-lang': 'cql-json',
+			'filter-crs': 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+			crs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+			limit: '10'
+		});
+		return fetchJson(OBLIQUE_API_URL + '?' + params.toString(), {
+			headers: {
+				token: DATAFORSYNINGEN_TOKEN,
+				Accept: 'application/geo+json'
+			}
+		}).then(function (data) {
+			return (data.features || []).map(function (item) {
+				var properties = item.properties || {};
+				var pixel = projectToObliquePixel(item, coordinates[0], coordinates[1]);
+				var direction = String(properties.direction || '').toLowerCase();
+				if (!pixel || direction === 'nadir') {
+					return null;
+				}
+				var centerX = pixel.width / 2;
+				var centerY = pixel.height / 2;
+				var distanceFromCenter = Math.pow((pixel.x - centerX) / pixel.width, 2)
+					+ Math.pow((pixel.y - centerY) / pixel.height, 2);
+				return {
+					item: item,
+					pixel: pixel,
+					direction: direction || 'unknown',
+					distanceFromCenter: distanceFromCenter,
+					datetime: String(properties.datetime || ''),
+					previewPromise: null,
+					previewUrl: null
+				};
+			}).filter(Boolean).sort(function (a, b) {
+				return b.datetime.localeCompare(a.datetime)
+					|| a.distanceFromCenter - b.distanceFromCenter;
+			}).reduce(function (directions, candidate) {
+				if (!directions.some(function (current) {
+					return current.direction === candidate.direction;
+				})) {
+					directions.push(candidate);
+				}
+				return directions;
+			}, []).sort(function (a, b) {
+				var order = ['north', 'east', 'south', 'west'];
+				var indexA = order.indexOf(a.direction);
+				var indexB = order.indexOf(b.direction);
+				return (indexA < 0 ? order.length : indexA) - (indexB < 0 ? order.length : indexB);
+			});
+		});
+	}
+
+	function loadGeoTiffLibrary() {
+		if (window.GeoTIFF) {
+			return Promise.resolve(window.GeoTIFF);
+		}
+		if (!geoTiffLibraryPromise) {
+			geoTiffLibraryPromise = new Promise(function (resolve, reject) {
+				var script = document.createElement('script');
+				script.src = GEOTIFF_SCRIPT_URL;
+				script.async = true;
+				script.crossOrigin = 'anonymous';
+				script.onload = function () {
+					if (window.GeoTIFF) {
+						resolve(window.GeoTIFF);
+					} else {
+						geoTiffLibraryPromise = null;
+						reject(new Error('GeoTIFF-biblioteket kunne ikke indlæses'));
+					}
+				};
+				script.onerror = function () {
+					geoTiffLibraryPromise = null;
+					reject(new Error('GeoTIFF-biblioteket kunne ikke hentes'));
+				};
+				document.head.appendChild(script);
+			});
+		}
+		return geoTiffLibraryPromise;
+	}
+
+	function obliqueAssetUrl(item) {
+		var asset = item.assets && item.assets.data;
+		if (!asset || !asset.href) {
+			throw new Error('Skråfotoet har ingen billedfil');
+		}
+		var url = new URL(asset.href);
+		if (!/(^|\.)dataforsyningen\.dk$/i.test(url.hostname)) {
+			throw new Error('Billedfilen kommer fra en ukendt tjeneste');
+		}
+		url.searchParams.set('token', DATAFORSYNINGEN_TOKEN);
+		return url.href;
+	}
+
+	function drawObliqueCrop(image, pixel) {
+		var cropWidth = Math.min(OBLIQUE_CROP_SIZE, image.getWidth());
+		var cropHeight = Math.min(OBLIQUE_CROP_SIZE, image.getHeight());
+		var left = Math.max(0, Math.min(image.getWidth() - cropWidth,
+			Math.round(pixel.x - cropWidth / 2)));
+		var top = Math.max(0, Math.min(image.getHeight() - cropHeight,
+			Math.round(pixel.y - cropHeight / 2)));
+		var right = left + cropWidth;
+		var bottom = top + cropHeight;
+		return image.readRGB({
+			window: [left, top, right, bottom],
+			interleave: true
+		}).then(function (rgb) {
+			var canvas = document.createElement('canvas');
+			canvas.width = cropWidth;
+			canvas.height = cropHeight;
+			var context = canvas.getContext('2d');
+			var rgba = new Uint8ClampedArray(cropWidth * cropHeight * 4);
+			for (var sourceOffset = 0, targetOffset = 0; sourceOffset < rgb.length;
+				sourceOffset += 3, targetOffset += 4) {
+				rgba[targetOffset] = rgb[sourceOffset];
+				rgba[targetOffset + 1] = rgb[sourceOffset + 1];
+				rgba[targetOffset + 2] = rgb[sourceOffset + 2];
+				rgba[targetOffset + 3] = 255;
+			}
+			context.putImageData(new ImageData(rgba, cropWidth, cropHeight), 0, 0);
+			return canvas.toDataURL('image/jpeg', 0.82);
+		});
+	}
+
+	function loadObliqueCandidate(candidate, GeoTIFF) {
+		if (candidate.previewUrl) {
+			return Promise.resolve(candidate.previewUrl);
+		}
+		if (!candidate.previewPromise) {
+			candidate.previewPromise = GeoTIFF.fromUrl(obliqueAssetUrl(candidate.item)).then(function (tiff) {
+				return tiff.getImage();
+			}).then(function (image) {
+				return drawObliqueCrop(image, candidate.pixel);
+			}).then(function (previewUrl) {
+				candidate.previewUrl = previewUrl;
+				return previewUrl;
+			}).catch(function (error) {
+				candidate.previewPromise = null;
+				throw error;
+			});
+		}
+		return candidate.previewPromise;
+	}
+
+	function displayObliqueCandidates(state, container, GeoTIFF, latlng) {
+		var candidates = state.candidates;
+		var status = container.querySelector('.building-oblique-status');
+		var caption = container.querySelector('.building-oblique-caption');
+		var stage = container.querySelector('.building-oblique-stage');
+		var image = document.createElement('img');
+		var imageLink = document.createElement('a');
+		var previousButton = document.createElement('button');
+		var nextButton = document.createElement('button');
+		var selectedIndex = candidates.findIndex(function (candidate) {
+			return candidate.direction === state.selectedDirection;
+		});
+		if (selectedIndex < 0) {
+			selectedIndex = Math.max(0, candidates.findIndex(function (candidate) {
+				return candidate.direction === 'north';
+			}));
+		}
+		var renderSerial = 0;
+		image.alt = 'Skråfoto-udsnit';
+		imageLink.className = 'building-oblique-image-link';
+		imageLink.target = '_blank';
+		imageLink.rel = 'noopener noreferrer';
+		imageLink.appendChild(image);
+		previousButton.type = 'button';
+		previousButton.className = 'building-oblique-arrow building-oblique-previous';
+		previousButton.textContent = '↻';
+		previousButton.setAttribute('aria-label', 'Vis skråfoto fra forrige retning');
+		nextButton.type = 'button';
+		nextButton.className = 'building-oblique-arrow building-oblique-next';
+		nextButton.textContent = '↺';
+		nextButton.setAttribute('aria-label', 'Vis skråfoto fra næste retning');
+		previousButton.hidden = candidates.length < 2;
+		nextButton.hidden = candidates.length < 2;
+		stage.replaceChildren(imageLink, status, previousButton, nextButton);
+		L.DomEvent.disableClickPropagation(stage);
+
+		function showCandidate(index) {
+			selectedIndex = (index + candidates.length) % candidates.length;
+			var candidate = candidates[selectedIndex];
+			var properties = candidate.item.properties || {};
+			var year = String(properties.datetime || '').slice(0, 4) || 'ukendt år';
+			var direction = obliqueDirectionLabel(candidate.direction);
+			var imageAlt = 'Skråfoto-udsnit ' + direction;
+			var captionText = 'Skråfoto © Klimadatastyrelsen, ' + year + ' (' + direction + ')';
+			var serial = ++renderSerial;
+			state.selectedDirection = candidate.direction;
+			previousButton.title = 'Vis skråfoto ' + obliqueDirectionLabel(
+				candidates[(selectedIndex - 1 + candidates.length) % candidates.length].direction);
+			nextButton.title = 'Vis skråfoto ' + obliqueDirectionLabel(
+				candidates[(selectedIndex + 1) % candidates.length].direction);
+			status.textContent = candidate.previewUrl ? '' : 'Henter foto ' + direction + ' …';
+			loadObliqueCandidate(candidate, GeoTIFF).then(function (previewUrl) {
+				if (serial === renderSerial && container.isConnected) {
+					image.alt = imageAlt;
+					caption.textContent = captionText;
+					image.src = previewUrl;
+					imageLink.href = obliqueUrl(latlng, candidate.direction);
+					imageLink.title = 'Åbn skråfoto ' + direction + ' i en ny fane';
+					imageLink.setAttribute('aria-label', imageLink.title);
+					status.textContent = '';
+					container.dataset.loaded = 'true';
+					container.dataset.loading = '';
+				}
+			}).catch(function (error) {
+				if (serial === renderSerial && container.isConnected) {
+					status.textContent = 'Skråfoto kunne ikke indlæses: ' + error.message;
+					container.dataset.loading = '';
+				}
+			});
+		}
+
+		previousButton.addEventListener('click', function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			showCandidate(selectedIndex - 1);
+		});
+		nextButton.addEventListener('click', function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			showCandidate(selectedIndex + 1);
+		});
+		showCandidate(selectedIndex);
+	}
+
+	function loadObliquePreview(id, latlng, coordinates, popupElement) {
+		var container = popupElement && popupElement.querySelector('.building-oblique-preview');
+		if (!container || container.dataset.loading === 'true' || container.dataset.loaded === 'true') {
+			return;
+		}
+		container.dataset.loading = 'true';
+		var status = container.querySelector('.building-oblique-status');
+		if (!DATAFORSYNINGEN_TOKEN) {
+			status.textContent = 'Skråfoto kræver et Dataforsyningen-token i www/config.js.';
+			container.dataset.loaded = 'true';
+			return;
+		}
+		if (!activeObliquePreview || activeObliquePreview.id !== id) {
+			activeObliquePreview = {
+				id: id,
+				candidates: null,
+				searchPromise: null,
+				selectedDirection: 'north'
+			};
+		}
+		var state = activeObliquePreview;
+		if (state.candidates) {
+			if (!state.candidates.length) {
+				status.textContent = 'Intet passende skråfoto fundet for dette punkt.';
+				container.dataset.loaded = 'true';
+				return;
+			}
+			loadGeoTiffLibrary().then(function (GeoTIFF) {
+				if (container.isConnected) {
+					displayObliqueCandidates(state, container, GeoTIFF, latlng);
+				}
+			}).catch(function (error) {
+				if (container.isConnected) {
+					status.textContent = 'Skråfoto kunne ikke indlæses: ' + error.message;
+					container.dataset.loading = '';
+				}
+			});
+			return;
+		}
+		if (!state.searchPromise) {
+			status.textContent = 'Finder skråfotos …';
+			state.searchPromise = findObliqueItems(latlng, coordinates).then(function (candidates) {
+				state.candidates = candidates;
+				return candidates;
+			}).catch(function (error) {
+				state.searchPromise = null;
+				throw error;
+			});
+		}
+		state.searchPromise.then(function (candidates) {
+			if (!container.isConnected) {
+				return;
+			}
+			if (!candidates.length) {
+				status.textContent = 'Intet passende skråfoto fundet for dette punkt.';
+				container.dataset.loaded = 'true';
+				return;
+			}
+			return loadGeoTiffLibrary().then(function (GeoTIFF) {
+				if (!container.isConnected) {
+					return;
+				}
+				displayObliqueCandidates(state, container, GeoTIFF, latlng);
+			});
+		}).catch(function (error) {
+			if (container.isConnected) {
+				status.textContent = 'Skråfoto kunne ikke indlæses: ' + error.message;
+				container.dataset.loading = '';
+			}
+		});
 	}
 
 	function popupContent(feature, latlng, id) {
@@ -787,9 +1242,14 @@
 			rows += '<dt>Byggeår</dt><dd>' + year + '</dd>';
 		}
 		var oblique = '<a href="' + escapeHtml(obliqueUrl(latlng)) + '" target="_blank" rel="noopener">Se skråfoto</a>';
-		return '<div class="building-popup"><dl>' + rows + '</dl>'
-			+ '<a href="' + escapeHtml(shareUrl(id)) + '">Del link til dette punkt</a>'
-			+ ' · ' + oblique + '</div>';
+		var share = '<a class="building-share-link" href="' + escapeHtml(shareUrl(id)) + '">Del link til dette punkt</a>'
+			+ '<span class="building-share-status" role="status" aria-live="polite"></span>';
+		return '<div class="building-popup">'
+			+ '<div class="building-oblique-preview">'
+			+ '<div class="building-oblique-stage"><span class="building-oblique-status" role="status" aria-live="polite">Indlæser skråfoto …</span></div>'
+			+ '<small class="building-oblique-caption"></small></div>'
+			+ '<dl>' + rows + '</dl>'
+			+ '<div class="building-popup-actions">' + share + ' · ' + oblique + '</div></div>';
 	}
 
 	function updateYearControl() {
@@ -890,7 +1350,13 @@
 				fillColor: invalid ? '#aaa' : color,
 				fillOpacity: 0.8
 			});
-			marker.bindPopup(popupContent(feature, L.latLng(latlng[0], latlng[1]), id));
+			var popupLatLng = L.latLng(latlng[0], latlng[1]);
+			marker.bindPopup(popupContent(feature, popupLatLng, id), { maxWidth: 380 });
+			marker.on('popupopen', function (event) {
+				var popupElement = event.popup.getElement();
+				setupShareLink(popupElement);
+				loadObliquePreview(id, popupLatLng, coordinates, popupElement);
+			});
 			marker.on('click', function () {
 				selectedId = id;
 				updateHash();
@@ -898,6 +1364,9 @@
 			marker.on('popupclose', function () {
 				if (!renderingFeatures && selectedId === id) {
 					selectedId = null;
+					if (activeObliquePreview && activeObliquePreview.id === id) {
+						activeObliquePreview = null;
+					}
 					updateHash();
 				}
 			});

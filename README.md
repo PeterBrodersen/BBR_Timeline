@@ -46,7 +46,7 @@ tjenestetokens/nøgler:
 | --- | --- |
 | `ADRESSEVAELGER_TOKEN` | Token til Adressevælgerens adresseopslag. |
 | `DATAFORDELER_APIKEY` | API-nøgle til Datafordelerens GraphQL-opslag. |
-| `DATAFORSYNINGEN_TOKEN` | Token til Dataforsyningens luftfotolag. |
+| `DATAFORSYNINGEN_TOKEN` | Token til Dataforsyningens luftfotolag og skråfoto-forhåndsvisning i bygningspopup. |
 
 Tjenesternes URL-felter er allerede udfyldt i eksempelfilen og behøver normalt
 ikke ændres. `BBR_DATA_URL` skal pege på FlatGeobuf-filen relativt til `www/`;
@@ -55,6 +55,14 @@ værdier styrer kortets startposition og zoom, minimum zoom, animationshastighed
 punktmængden pr. animationstrin, histogrammets y-akses skalering, videoens
 billedfrekvens og Mediabunny-CDN'en. `YEAR_HISTOGRAM_SCALE` er som standard
 `linear`; den kan også sættes til `logarithmic`.
+
+Skråfoto-forhåndsvisningen henter et lille udsnit direkte fra en Cloud Optimized
+GeoTIFF-fil, når en bygningspopup åbnes. Den starter med nord, hvis billedet
+findes, og pilene skifter mellem de tilgængelige retninger. Udsnittets position
+beregnes ud fra fotokameraets metadata med en anslået terrænhøjde på 20 meter;
+det kan derfor afvige fra bygningens præcise placering i billedet.
+Da skråfoto-CDN'en ikke tillader token-headeren fra browseren, sendes tokenet i
+billed-URL'en. En offentlig statisk side kan derfor ikke holde tokenet hemmeligt.
 
 `www/config.js` er ignoreret af Git. Læg ikke tokens i `config.example.js` eller
 andre filer, der skal deles.
