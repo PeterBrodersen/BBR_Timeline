@@ -456,6 +456,11 @@
 		return String(value).trim();
 	}
 
+	function featureColorYear(feature) {
+		var year = featureYear(feature);
+		return year === null && parseConstructionYear(constructionYearValue(feature)) === 1000 ? 1000 : year;
+	}
+
 	function totalFloors(feature) {
 		var properties = feature.properties || {};
 		return ['numberOfFloorsAboveGround', 'numberOfFloorsBelowGround'].reduce(function (total, field) {
@@ -1418,6 +1423,7 @@
 		}
 		visibleFeatures.forEach(function (feature) {
 			var year = featureYear(feature);
+			var colorYear = featureColorYear(feature);
 			var invalid = year === null;
 			var coordinates = feature.geometry && feature.geometry.coordinates;
 			if (!coordinates || coordinates.length < 2) {
@@ -1426,13 +1432,13 @@
 			var latlng = utm32ToLatLng(coordinates[0], coordinates[1]);
 			var id = hashIdFor(feature);
 			visibleIds.add(id);
-			var color = invalid ? '#777' : yearColor(year);
+			var color = colorYear === null ? '#777' : yearColor(colorYear);
 			var marker = L.circleMarker(latlng, {
 				renderer: canvasRenderer,
 				radius: 4,
-				color: invalid ? '#666' : color,
+				color: invalid && colorYear === null ? '#666' : color,
 				weight: 1,
-				fillColor: invalid ? '#aaa' : color,
+				fillColor: invalid && colorYear === null ? '#aaa' : color,
 				fillOpacity: 0.8
 			});
 			var popupLatLng = L.latLng(latlng[0], latlng[1]);
@@ -1707,11 +1713,11 @@
 		records.forEach(function (record) {
 			var point = map.latLngToContainerPoint(record.latlng);
 			var x = point.x * scaleX, y = point.y * scaleY;
-			var color = record.year === null ? '#777' : yearColor(record.year);
+			var color = record.colorYear === null ? '#777' : yearColor(record.colorYear);
 			context.beginPath();
 			context.arc(x, y, 4 * (scaleX + scaleY) / 2, 0, Math.PI * 2);
-			context.fillStyle = record.year === null ? '#aaa' : color;
-			context.strokeStyle = record.year === null ? '#666' : color;
+			context.fillStyle = record.colorYear === null ? '#aaa' : color;
+			context.strokeStyle = record.colorYear === null ? '#666' : color;
 			context.lineWidth = Math.max(1, scaleX);
 			context.fill();
 			context.stroke();
@@ -1785,7 +1791,8 @@
 			return {
 				feature: feature,
 				latlng: L.latLng(latlng[0], latlng[1]),
-				year: featureYear(feature)
+				year: featureYear(feature),
+				colorYear: featureColorYear(feature)
 			};
 		});
 	}
