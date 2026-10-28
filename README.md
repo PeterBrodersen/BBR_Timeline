@@ -50,7 +50,7 @@ tjenestetokens/nøgler:
 | --- | --- |
 | `ADRESSEVAELGER_TOKEN` | Token til Adressevælgerens adresseopslag. |
 | `DATAFORDELER_APIKEY` | API-nøgle til Datafordelerens GraphQL-opslag. |
-| `DATAFORSYNINGEN_TOKEN` | Token til Dataforsyningens luftfotolag og skråfoto-forhåndsvisning i bygningspopup. |
+| `DATAFORSYNINGEN_TOKEN` | Token til Skærmkort Grå, luftfotolaget og skråfoto-forhåndsvisningen i bygningspopup. |
 
 Tjenesternes URL-felter er allerede udfyldt i eksempelfilen og behøver normalt
 ikke ændres. `BBR_DATA_URL` skal pege på FlatGeobuf-filen relativt til `www/`;
@@ -59,6 +59,10 @@ værdier styrer kortets startposition og zoom, minimum zoom, animationshastighed
 punktmængden pr. animationstrin, histogrammets y-akses skalering, videoens
 billedfrekvens og Mediabunny-CDN'en. `YEAR_HISTOGRAM_SCALE` er som standard
 `linear`; den kan også sættes til `logarithmic`.
+
+Baggrundslagene vises i rækkefølgen Skærmkort Grå, Luftfoto og OpenStreetMap.
+Skærmkort Grå bruger Dataforsyningens WMTS-tjeneste
+[topo_skaermkort_graa](https://dataforsyningen.dk/data/962) i EPSG:25832.
 
 Skråfoto-forhåndsvisningen henter et lille udsnit direkte fra en Cloud Optimized
 GeoTIFF-fil, når en bygningspopup åbnes. Den starter med nord, hvis billedet

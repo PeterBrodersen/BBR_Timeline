@@ -61,7 +61,7 @@
 	var canvasRenderer;
 	var obliqueLink;
 	var activeBaseLayer;
-	var activeLayerAttribution = '© OpenStreetMap contributors';
+	var activeLayerAttribution = '© Klimadatastyrelsen, Skærmkort Grå';
 	var allFeatures = [];
 	var pointFeaturesCache = [];
 	var selectedId = null;
@@ -1638,11 +1638,13 @@
 		if (!tileContainer) {
 			throw new Error('Kortlaget er ikke klar til eksport.');
 		}
-		var tiles = Array.from(tileContainer.querySelectorAll('img.leaflet-tile-loaded'))
+		var tiles = Array.from(tileContainer.querySelectorAll('img.leaflet-tile-loaded, canvas.leaflet-tile-loaded'))
 			.filter(function (image) {
 				var rect = image.getBoundingClientRect();
 				var style = getComputedStyle(image);
-				return image.complete && image.naturalWidth > 0 && style.display !== 'none'
+				var isCanvas = image.tagName === 'CANVAS';
+				return (isCanvas ? image.width > 0 && image.height > 0 : image.complete && image.naturalWidth > 0)
+					&& style.display !== 'none'
 					&& style.visibility !== 'hidden' && Number(style.opacity) > 0
 					&& rect.right > mapRect.left && rect.left < mapRect.right
 					&& rect.bottom > mapRect.top && rect.top < mapRect.bottom;
@@ -1816,6 +1818,113 @@
 				}
 			}
 		});
+	}
+
+	function createGrayWmtsLayer() {
+		var layer = L.GridLayer.extend({
+			options: {
+				minZoom: 0,
+				maxZoom: OSM_MAX_ZOOM_LEVEL,
+				tileSize: 256,
+				attribution: '© Klimadatastyrelsen, Skærmkort Grå'
+			},
+			createTile: function (coords, done) {
+				var tile = document.createElement('canvas');
+				var tileSize = this.getTileSize();
+				tile.width = tileSize.x;
+				tile.height = tileSize.y;
+				var context = tile.getContext('2d');
+				if (!context) {
+					done(new Error('Browseren kunne ikke oprette et canvas til Skærmkort Grå.'), tile);
+					return tile;
+				}
+				if (!DATAFORSYNINGEN_TOKEN) {
+					done(new Error('Skærmkort Grå kræver et Dataforsyningen-token i www/config.js.'), tile);
+					return tile;
+				}
+
+				var nw = map.unproject(L.point(coords.x * tileSize.x, coords.y * tileSize.y), coords.z);
+				var se = map.unproject(L.point((coords.x + 1) * tileSize.x, (coords.y + 1) * tileSize.y), coords.z);
+				if (se.lng < 2.478420 || nw.lng > 17.557800 || se.lat > 58.640300 || nw.lat < 53.015000) {
+					done(null, tile);
+					return tile;
+				}
+
+				var projectedCorners = [
+					latLngToUtm32(nw.lat, nw.lng),
+					latLngToUtm32(nw.lat, se.lng),
+					latLngToUtm32(se.lat, nw.lng),
+					latLngToUtm32(se.lat, se.lng)
+				];
+				var xs = projectedCorners.map(function (point) { return point[0]; });
+				var ys = projectedCorners.map(function (point) { return point[1]; });
+				var minX = Math.min.apply(null, xs);
+				var maxX = Math.max.apply(null, xs);
+				var minY = Math.min.apply(null, ys);
+				var maxY = Math.max.apply(null, ys);
+				var matrix = Math.max(0, Math.min(13, coords.z - 6));
+				var scale = 5851428.571428572 / Math.pow(2, matrix);
+				var wmtsTileSpan = scale * 0.00028 * 256;
+				var matrixWidth = Math.ceil(880000 / wmtsTileSpan);
+				var matrixHeight = Math.ceil(600000 / wmtsTileSpan);
+				var firstCol = Math.max(0, Math.floor((minX - 120000) / wmtsTileSpan));
+				var lastCol = Math.min(matrixWidth - 1, Math.floor((maxX - 120000) / wmtsTileSpan));
+				var firstRow = Math.max(0, Math.floor((6500000 - maxY) / wmtsTileSpan));
+				var lastRow = Math.min(matrixHeight - 1, Math.floor((6500000 - minY) / wmtsTileSpan));
+				var requests = [];
+
+				for (var row = firstRow; row <= lastRow; row++) {
+					for (var col = firstCol; col <= lastCol; col++) {
+						requests.push({ row: row, col: col });
+					}
+				}
+				Promise.all(requests.map(function (request) {
+					return new Promise(function (resolve, reject) {
+						var image = new Image();
+						image.crossOrigin = 'anonymous';
+						image.onload = function () {
+							resolve({ image: image, row: request.row, col: request.col });
+						};
+						image.onerror = function () {
+							reject(new Error('Kunne ikke hente en WMTS-flise fra Skærmkort Grå.'));
+						};
+						var params = new URLSearchParams({
+							service: 'WMTS',
+							request: 'GetTile',
+							version: '1.0.0',
+							layer: 'topo_skaermkort_graa',
+							style: 'default',
+							tilematrixset: 'View1',
+							tilematrix: String(matrix),
+							tilerow: String(request.row),
+							tilecol: String(request.col),
+							format: 'image/jpeg',
+							token: DATAFORSYNINGEN_TOKEN
+						});
+						image.src = DATAFORSYNINGEN_URL + '/topo_skaermkort_graa_DAF?' + params.toString();
+					});
+				})).then(function (images) {
+					images.forEach(function (source) {
+						var x = 120000 + source.col * wmtsTileSpan;
+						var y = 6500000 - source.row * wmtsTileSpan;
+						var topLeft = map.project(utm32ToLatLng(x, y), coords.z);
+						var bottomRight = map.project(utm32ToLatLng(x + wmtsTileSpan, y - wmtsTileSpan), coords.z);
+						context.drawImage(
+							source.image,
+							topLeft.x - coords.x * tileSize.x,
+							topLeft.y - coords.y * tileSize.y,
+							bottomRight.x - topLeft.x,
+							bottomRight.y - topLeft.y
+						);
+					});
+					done(null, tile);
+				}).catch(function (error) {
+					done(error, tile);
+				});
+				return tile;
+			}
+		});
+		return new layer();
 	}
 
 	function cancelVideoExport() {
@@ -1992,6 +2101,7 @@
 
 	function initMap() {
 		var view = readInitialView();
+		var grayLayer = createGrayWmtsLayer();
 		var osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 			maxZoom: OSM_MAX_ZOOM_LEVEL,
 			crossOrigin: true,
@@ -2011,15 +2121,23 @@
 			zoom: view.zoom,
 			minZoom: 0,
 			maxZoom: OSM_MAX_ZOOM_LEVEL,
-			layers: [osmLayer],
+			layers: [],
 			preferCanvas: true
 		});
-		activeBaseLayer = osmLayer;
-		L.control.layers({ 'OpenStreetMap': osmLayer, 'Luftfoto': aerialLayer }).addTo(map);
+		grayLayer.addTo(map);
+		activeBaseLayer = grayLayer;
+		L.control.layers({
+			'Skærmkort Grå': grayLayer,
+			'Luftfoto': aerialLayer,
+			'OpenStreetMap': osmLayer
+		}).addTo(map);
 		map.on('baselayerchange', function (event) {
 			activeBaseLayer = event.layer;
 			activeLayerAttribution = event.layer === osmLayer
-				? '© OpenStreetMap contributors' : 'Indeholder data fra Klimadatastyrelsen, Ortofoto Forår';
+				? '© OpenStreetMap contributors'
+				: event.layer === aerialLayer
+					? 'Indeholder data fra Klimadatastyrelsen, Ortofoto Forår'
+					: '© Klimadatastyrelsen, Skærmkort Grå';
 			var maxZoom = event.layer.options.maxZoom;
 			map.setMaxZoom(maxZoom);
 			if (map.getZoom() > maxZoom) {
