@@ -5,7 +5,6 @@
 	var OBLIQUE_API_URL = DATAFORSYNINGEN_URL + '/rest/skraafoto_api/v2/search';
 	var OBLIQUE_GROUND_ELEVATION = 20;
 	var OBLIQUE_CROP_SIZE = 768;
-	var GEOTIFF_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js';
 	var BBR_VALUE_TRANSLATIONS = {
 		currentUse: {
 			agriculture: 'Landbrug',
@@ -61,7 +60,8 @@
 	var canvasRenderer;
 	var obliqueLink;
 	var activeBaseLayer;
-	var activeLayerAttribution = '© Klimadatastyrelsen, Skærmkort Grå';
+	var activeLayerAttribution = '© Klimadatastyrelsen / Dataforsyningen';
+	var backgroundStatus = document.getElementById('background-status');
 	var allFeatures = [];
 	var pointFeaturesCache = [];
 	var selectedId = null;
@@ -816,7 +816,7 @@
 		}
 		return {
 			center: [Number(match[2]), Number(match[3])],
-			zoom: Math.max(0, Math.min(OSM_MAX_ZOOM_LEVEL, Number(match[1])))
+			zoom: Math.max(0, Math.min(VECTOR_TILE_MAX_ZOOM_LEVEL, Number(match[1])))
 		};
 	}
 
@@ -1598,11 +1598,36 @@
 
 	function waitForBaseTiles() {
 		return new Promise(function (resolve) {
-			if (exportCancelRequested || !activeBaseLayer || !activeBaseLayer.isLoading()) {
+			if (exportCancelRequested || !activeBaseLayer) {
 				resolve();
 				return;
 			}
 			var layer = activeBaseLayer;
+			if (typeof layer.getMaplibreMap === 'function') {
+				var maplibreMap = layer.getMaplibreMap();
+				if (!maplibreMap || maplibreMap.loaded()) {
+					resolve();
+					return;
+				}
+				var maplibreTimeout = setTimeout(finishMaplibre, 15000);
+				var maplibreCancellationPoll = setInterval(function () {
+					if (exportCancelRequested) {
+						finishMaplibre();
+					}
+				}, 100);
+				function finishMaplibre() {
+					clearTimeout(maplibreTimeout);
+					clearInterval(maplibreCancellationPoll);
+					maplibreMap.off('idle', finishMaplibre);
+					resolve();
+				}
+				maplibreMap.once('idle', finishMaplibre);
+				return;
+			}
+			if (typeof layer.isLoading !== 'function' || !layer.isLoading()) {
+				resolve();
+				return;
+			}
 			var finished = false;
 			var timeout = setTimeout(finish, 15000);
 			var cancellationPoll = setInterval(function () {
@@ -1638,7 +1663,9 @@
 		if (!tileContainer) {
 			throw new Error('Kortlaget er ikke klar til eksport.');
 		}
-		var tiles = Array.from(tileContainer.querySelectorAll('img.leaflet-tile-loaded, canvas.leaflet-tile-loaded'))
+		var tiles = Array.from(tileContainer.querySelectorAll(
+			'img.leaflet-tile-loaded, canvas.leaflet-tile-loaded, canvas.maplibregl-canvas'
+		))
 			.filter(function (image) {
 				var rect = image.getBoundingClientRect();
 				var style = getComputedStyle(image);
@@ -1820,111 +1847,32 @@
 		});
 	}
 
-	function createGrayWmtsLayer() {
-		var layer = L.GridLayer.extend({
-			options: {
-				minZoom: 0,
-				maxZoom: OSM_MAX_ZOOM_LEVEL,
-				tileSize: 256,
-				attribution: '© Klimadatastyrelsen, Skærmkort Grå'
-			},
-			createTile: function (coords, done) {
-				var tile = document.createElement('canvas');
-				var tileSize = this.getTileSize();
-				tile.width = tileSize.x;
-				tile.height = tileSize.y;
-				var context = tile.getContext('2d');
-				if (!context) {
-					done(new Error('Browseren kunne ikke oprette et canvas til Skærmkort Grå.'), tile);
-					return tile;
+	function createVectorTilesLayer() {
+		if (!DATAFORSYNINGEN_TOKEN) {
+			return Promise.reject(new Error('Vektorkort kræver et Dataforsyningen-token i www/config.js.'));
+		}
+		return fetchJson(VECTOR_TILE_STYLE_URL).then(function (style) {
+			Object.keys(style.sources || {}).forEach(function (sourceName) {
+				var source = style.sources[sourceName];
+				if (!Array.isArray(source.tiles)) {
+					return;
 				}
-				if (!DATAFORSYNINGEN_TOKEN) {
-					done(new Error('Skærmkort Grå kræver et Dataforsyningen-token i www/config.js.'), tile);
-					return tile;
-				}
-
-				var nw = map.unproject(L.point(coords.x * tileSize.x, coords.y * tileSize.y), coords.z);
-				var se = map.unproject(L.point((coords.x + 1) * tileSize.x, (coords.y + 1) * tileSize.y), coords.z);
-				if (se.lng < 2.478420 || nw.lng > 17.557800 || se.lat > 58.640300 || nw.lat < 53.015000) {
-					done(null, tile);
-					return tile;
-				}
-
-				var projectedCorners = [
-					latLngToUtm32(nw.lat, nw.lng),
-					latLngToUtm32(nw.lat, se.lng),
-					latLngToUtm32(se.lat, nw.lng),
-					latLngToUtm32(se.lat, se.lng)
-				];
-				var xs = projectedCorners.map(function (point) { return point[0]; });
-				var ys = projectedCorners.map(function (point) { return point[1]; });
-				var minX = Math.min.apply(null, xs);
-				var maxX = Math.max.apply(null, xs);
-				var minY = Math.min.apply(null, ys);
-				var maxY = Math.max.apply(null, ys);
-				var matrix = Math.max(0, Math.min(13, coords.z - 6));
-				var scale = 5851428.571428572 / Math.pow(2, matrix);
-				var wmtsTileSpan = scale * 0.00028 * 256;
-				var matrixWidth = Math.ceil(880000 / wmtsTileSpan);
-				var matrixHeight = Math.ceil(600000 / wmtsTileSpan);
-				var firstCol = Math.max(0, Math.floor((minX - 120000) / wmtsTileSpan));
-				var lastCol = Math.min(matrixWidth - 1, Math.floor((maxX - 120000) / wmtsTileSpan));
-				var firstRow = Math.max(0, Math.floor((6500000 - maxY) / wmtsTileSpan));
-				var lastRow = Math.min(matrixHeight - 1, Math.floor((6500000 - minY) / wmtsTileSpan));
-				var requests = [];
-
-				for (var row = firstRow; row <= lastRow; row++) {
-					for (var col = firstCol; col <= lastCol; col++) {
-						requests.push({ row: row, col: col });
-					}
-				}
-				Promise.all(requests.map(function (request) {
-					return new Promise(function (resolve, reject) {
-						var image = new Image();
-						image.crossOrigin = 'anonymous';
-						image.onload = function () {
-							resolve({ image: image, row: request.row, col: request.col });
-						};
-						image.onerror = function () {
-							reject(new Error('Kunne ikke hente en WMTS-flise fra Skærmkort Grå.'));
-						};
-						var params = new URLSearchParams({
-							service: 'WMTS',
-							request: 'GetTile',
-							version: '1.0.0',
-							layer: 'topo_skaermkort_graa',
-							style: 'default',
-							tilematrixset: 'View1',
-							tilematrix: String(matrix),
-							tilerow: String(request.row),
-							tilecol: String(request.col),
-							format: 'image/jpeg',
-							token: DATAFORSYNINGEN_TOKEN
-						});
-						image.src = DATAFORSYNINGEN_URL + '/topo_skaermkort_graa_DAF?' + params.toString();
-					});
-				})).then(function (images) {
-					images.forEach(function (source) {
-						var x = 120000 + source.col * wmtsTileSpan;
-						var y = 6500000 - source.row * wmtsTileSpan;
-						var topLeft = map.project(utm32ToLatLng(x, y), coords.z);
-						var bottomRight = map.project(utm32ToLatLng(x + wmtsTileSpan, y - wmtsTileSpan), coords.z);
-						context.drawImage(
-							source.image,
-							topLeft.x - coords.x * tileSize.x,
-							topLeft.y - coords.y * tileSize.y,
-							bottomRight.x - topLeft.x,
-							bottomRight.y - topLeft.y
-						);
-					});
-					done(null, tile);
-				}).catch(function (error) {
-					done(error, tile);
+				source.tiles = source.tiles.map(function (tileUrl) {
+					var separator = tileUrl.indexOf('?') === -1 ? '?' : '&';
+					return tileUrl + separator + 'token=' + encodeURIComponent(DATAFORSYNINGEN_TOKEN);
 				});
-				return tile;
-			}
+			});
+			var layer = L.maplibreGL({
+				style: style,
+				attributionControl: {
+					customAttribution: '© Klimadatastyrelsen / Dataforsyningen'
+				},
+				maxZoom: VECTOR_TILE_MAX_ZOOM_LEVEL,
+				preserveDrawingBuffer: true
+			});
+			layer.options.maxZoom = VECTOR_TILE_MAX_ZOOM_LEVEL;
+			return layer;
 		});
-		return new layer();
 	}
 
 	function cancelVideoExport() {
@@ -2101,7 +2049,6 @@
 
 	function initMap() {
 		var view = readInitialView();
-		var grayLayer = createGrayWmtsLayer();
 		var osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 			maxZoom: OSM_MAX_ZOOM_LEVEL,
 			crossOrigin: true,
@@ -2120,29 +2067,51 @@
 			center: view.center,
 			zoom: view.zoom,
 			minZoom: 0,
-			maxZoom: OSM_MAX_ZOOM_LEVEL,
+			maxZoom: VECTOR_TILE_MAX_ZOOM_LEVEL,
 			layers: [],
 			preferCanvas: true
 		});
-		grayLayer.addTo(map);
-		activeBaseLayer = grayLayer;
-		L.control.layers({
-			'Skærmkort Grå': grayLayer,
-			'Luftfoto': aerialLayer,
-			'OpenStreetMap': osmLayer
-		}).addTo(map);
 		map.on('baselayerchange', function (event) {
 			activeBaseLayer = event.layer;
 			activeLayerAttribution = event.layer === osmLayer
 				? '© OpenStreetMap contributors'
 				: event.layer === aerialLayer
 					? 'Indeholder data fra Klimadatastyrelsen, Ortofoto Forår'
-					: '© Klimadatastyrelsen, Skærmkort Grå';
+					: '© Klimadatastyrelsen / Dataforsyningen';
 			var maxZoom = event.layer.options.maxZoom;
 			map.setMaxZoom(maxZoom);
 			if (map.getZoom() > maxZoom) {
 				map.setZoom(maxZoom);
 			}
+		});
+		backgroundStatus.textContent = 'Indlæser vektorkort …';
+		createVectorTilesLayer().then(function (vectorLayer) {
+			vectorLayer.addTo(map);
+			vectorLayer.getMaplibreMap().on('error', function () {
+				backgroundStatus.textContent = 'Vektorkortet kunne ikke indlæse alle ressourcer. Kontrollér Dataforsyningen-token og forbindelsen.';
+			});
+			activeBaseLayer = vectorLayer;
+			activeLayerAttribution = '© Klimadatastyrelsen / Dataforsyningen';
+			L.control.layers({
+				'Skærmkort (vektortiles)': vectorLayer,
+				'Luftfoto': aerialLayer,
+				'OpenStreetMap': osmLayer
+			}).addTo(map);
+			backgroundStatus.textContent = '';
+		}).catch(function (error) {
+			osmLayer.addTo(map);
+			activeBaseLayer = osmLayer;
+			activeLayerAttribution = '© OpenStreetMap contributors';
+			map.setMaxZoom(OSM_MAX_ZOOM_LEVEL);
+			if (map.getZoom() > OSM_MAX_ZOOM_LEVEL) {
+				map.setZoom(OSM_MAX_ZOOM_LEVEL);
+			}
+			L.control.layers({
+				'Luftfoto': aerialLayer,
+				'OpenStreetMap': osmLayer
+			}).addTo(map);
+			backgroundStatus.textContent = 'Vektorkortet kunne ikke indlæses: ' + error.message
+				+ '. Viser OpenStreetMap i stedet.';
 		});
 		L.control.scale({ imperial: false }).addTo(map);
 		canvasRenderer = L.canvas({ padding: 0.5 });

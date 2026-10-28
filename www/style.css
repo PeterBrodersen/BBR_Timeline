@@ -15,6 +15,21 @@ body {
 	inset: 0;
 }
 
+#background-status:not(:empty) {
+	position: absolute;
+	top: 10px;
+	left: 50%;
+	z-index: 1000;
+	max-width: calc(100% - 24px);
+	padding: 6px 10px;
+	transform: translateX(-50%);
+	border-radius: 4px;
+	background: rgba(255, 255, 255, 0.95);
+	color: #444;
+	font-size: 13px;
+	pointer-events: none;
+}
+
 #address-search {
 	position: absolute;
 	z-index: 1000;

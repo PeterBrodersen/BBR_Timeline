@@ -50,19 +50,21 @@ tjenestetokens/nøgler:
 | --- | --- |
 | `ADRESSEVAELGER_TOKEN` | Token til Adressevælgerens adresseopslag. |
 | `DATAFORDELER_APIKEY` | API-nøgle til Datafordelerens GraphQL-opslag. |
-| `DATAFORSYNINGEN_TOKEN` | Token til Skærmkort Grå, luftfotolaget og skråfoto-forhåndsvisningen i bygningspopup. |
+| `DATAFORSYNINGEN_TOKEN` | Token til vektorkortet, luftfotolaget og skråfoto-forhåndsvisningen i bygningspopup. |
 
 Tjenesternes URL-felter er allerede udfyldt i eksempelfilen og behøver normalt
 ikke ændres. `BBR_DATA_URL` skal pege på FlatGeobuf-filen relativt til `www/`;
 standardværdien `local/bbr.fgb` passer til dataopsætningen ovenfor. De øvrige
 værdier styrer kortets startposition og zoom, minimum zoom, animationshastighed,
 punktmængden pr. animationstrin, histogrammets y-akses skalering, videoens
-billedfrekvens og Mediabunny-CDN'en. `YEAR_HISTOGRAM_SCALE` er som standard
-`linear`; den kan også sættes til `logarithmic`.
+billedfrekvens og CDN-adresserne til de eksterne biblioteker. `YEAR_HISTOGRAM_SCALE`
+er som standard `linear`; den kan også sættes til `logarithmic`.
 
-Baggrundslagene vises i rækkefølgen Skærmkort Grå, Luftfoto og OpenStreetMap.
-Skærmkort Grå bruger Dataforsyningens WMTS-tjeneste
-[topo_skaermkort_graa](https://dataforsyningen.dk/data/962) i EPSG:25832.
+Baggrundslagene vises i rækkefølgen Skærmkort (vektortiles), Luftfoto og
+OpenStreetMap. Skærmkortet bruger Dataforsyningens officielle vektorstyle
+[3857_skaermkort_klassisk](https://cdn.dataforsyningen.dk/assets/vector_tiles_assets/latest/styles/official/3857_skaermkort_klassisk.json)
+i EPSG:3857. Vektorkortet kan zoomes til niveau 20, OpenStreetMap til 19 og
+luftfoto til 21.
 
 Skråfoto-forhåndsvisningen henter et lille udsnit direkte fra en Cloud Optimized
 GeoTIFF-fil, når en bygningspopup åbnes. Den starter med nord, hvis billedet
@@ -88,6 +90,7 @@ python3 -m http.server 8000
 Range-requests, så FlatGeobufs rumlige indeks kan læses uden at hente hele
 datafilen.
 
-Siden bruger Leaflet, FlatGeobuf JavaScript og Mediabunny fra CDN. Der kræves
-ikke Node.js eller npm for at køre websiden. Videoeksport indlæser Mediabunny
-fra CDN ved behov og bruger browserens WebCodecs-understøttelse.
+Siden bruger Leaflet, FlatGeobuf JavaScript, MapLibre GL JS, MapLibre-Leaflet,
+GeoTIFF og Mediabunny fra CDN. Biblioteksadresserne samles i `config.js`.
+Der kræves ikke Node.js eller npm for at køre websiden. Videoeksport indlæser
+Mediabunny fra CDN ved behov og bruger browserens WebCodecs-understøttelse.

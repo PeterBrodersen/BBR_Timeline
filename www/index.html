@@ -4,7 +4,11 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>BBR-bygninger</title>
-	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+	<script src="config.js"></script>
+	<script>
+		document.write('<link rel="stylesheet" href="' + LEAFLET_CSS_URL + '">');
+		document.write('<link rel="stylesheet" href="' + MAPLIBRE_CSS_URL + '">');
+	</script>
 	<link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -81,9 +85,33 @@
 			</p>
 		</div>
 	</section>
-	<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-	<script src="https://cdn.jsdelivr.net/npm/flatgeobuf/dist/flatgeobuf-geojson.min.js"></script>
-	<script src="config.js"></script>
-	<script src="app.js"></script>
+	<div id="background-status" role="status" aria-live="polite"></div>
+	<script>
+		(function () {
+			function loadScript(url) {
+				return new Promise(function (resolve, reject) {
+					var script = document.createElement('script');
+					script.src = url;
+					script.onload = resolve;
+					script.onerror = function () {
+						reject(new Error('Kunne ikke indlæse ' + url));
+					};
+					document.body.appendChild(script);
+				});
+			}
+
+			[
+				LEAFLET_JS_URL,
+				FLATGEOBUF_JS_URL,
+				MAPLIBRE_JS_URL,
+				MAPLIBRE_LEAFLET_PLUGIN_URL,
+				'app.js'
+			].reduce(function (chain, url) {
+				return chain.then(function () { return loadScript(url); });
+			}, Promise.resolve()).catch(function (error) {
+				document.getElementById('status').textContent = 'Kunne ikke indlæse kortbiblioteker: ' + error.message;
+			});
+		}());
+	</script>
 </body>
 </html>
